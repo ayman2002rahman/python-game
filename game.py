@@ -1,19 +1,25 @@
 import pygame
 import os
+from pygame import mixer
 #from button import Button
+
+mixer.init()
+mixer.music.load(os.path.join('Assets', 'winsound.mp3'))
+mixer.music.set_volume(0.5)
 
 WIDTH, HEIGHT = 700, 700 
 WINDOW = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Miner Mania") #game name displayed on window
 
 #----CONSTANTS----
-BACKGROUND = (38, 50, 70) #background color
+BACKGROUND = (98, 163, 60) #background color
 MAIN_MENU_BACKGROUND = (196, 195, 186)
-GAMEOVER_BACKGROUND = (247, 81, 81)
+WIN_BACKGROUND = (255, 153, 0)
+
 TITLE_SCALE = 0.85
-GAMEOVER_SCALE = 0.7
+END_SCALE = 0.7
 FPS = 10 #caps the refresh rate so the game is consistent
-SIZE = 4 #board dimensions
+SIZE = 5 #board dimensions
 TRACK_SIZE = 128
 GRID_THICKNESS = 2
 CAR_SPEED = 7
@@ -29,6 +35,10 @@ DR = pygame.transform.rotate(LD, 90)
 UR = pygame.transform.rotate(DR, 90)
 LU = pygame.transform.rotate(UR, 90)
 
+CAVE = pygame.image.load(os.path.join('Assets', 'cave.png'))
+ENTRANCE = pygame.transform.scale(CAVE, (TRACK_SIZE, TRACK_SIZE))
+EXIT = pygame.transform.rotate(ENTRANCE, 90)
+
 CAR_IMG = pygame.image.load(os.path.join('Assets', 'car.png'))
 VERTICAL_CAR = pygame.transform.scale(CAR_IMG, (TRACK_SIZE, TRACK_SIZE))
 HORIZONTAL_CAR = pygame.transform.rotate(VERTICAL_CAR, -90)
@@ -38,8 +48,8 @@ TITLE_IMG = pygame.image.load(os.path.join('Assets', 'title.png'))
 TITLE = pygame.transform.scale(TITLE_IMG, (int(TITLE_SCALE * TITLE_IMG.get_width()), int(TITLE_SCALE * TITLE_IMG.get_height())))
 START_IMG = pygame.image.load(os.path.join('Assets', 'startButton.png'))
 RESTART_IMG = pygame.image.load(os.path.join('Assets', 'restart.png'))
-GAMEOVER_IMG = pygame.image.load(os.path.join('Assets', 'gameover.png'))
-GAMEOVER_MESSAGE = pygame.transform.scale(GAMEOVER_IMG, (int(GAMEOVER_SCALE * GAMEOVER_IMG.get_width()), int(GAMEOVER_SCALE * GAMEOVER_IMG.get_height())))
+END_IMG = pygame.image.load(os.path.join('Assets', 'end.png'))
+WIN = pygame.transform.scale(END_IMG, (int(END_SCALE * END_IMG.get_width()), int(END_SCALE * END_IMG.get_height())))
 
 #----BUTTONS----
 
@@ -81,14 +91,23 @@ tracks[1][2] = '1100'
 tracks[1][3] = '1001'
 tracks[2][0] = '0101'
 tracks[2][1] = '1100'
-tracks[2][2] = '1001'
+tracks[2][2] = '0101'
 tracks[2][3] = '1001'
-tracks[3][0] = '0110'
-tracks[3][1] = '0110'
+tracks[3][0] = '1100'
+tracks[3][1] = '0011'
 tracks[3][2] = '0101'
 tracks[3][3] = '1001'
+tracks[0][4] = '0110'
+tracks[1][4] = '1100'
+tracks[2][4] = '0110'
+tracks[3][4] = '0101'
+tracks[4][0] = '1001'
+tracks[4][1] = '0011'
+tracks[4][2] = '1010'
+tracks[4][3] = '0101'
+tracks[4][4] = '1001'
 
-car = {'trackPos': (3, 0), 'pixPos': (0, 4 * TRACK_SIZE), 'dir': 'U'} #all the different possible directions are LUDR
+playingSolution = False
 
 def getDigit(s, i):
     return int(s[i])
@@ -97,7 +116,7 @@ def makeGridButtons():
     return [[Button(j * TRACK_SIZE, i * TRACK_SIZE, EMPTY, 1) for j in range(TRACK_SIZE)] for i in range(TRACK_SIZE)]
 
 def rotateTrack(tracks, i, j):
-    if car['trackPos'] != (1, j):
+    if not playingSolution:
         if tracks[i][j] == '0011':
             tracks[i][j] = '0101'
         elif tracks[i][j] == '0101':
@@ -117,88 +136,61 @@ def handleTrackClicks(buttons):
         for j in range(SIZE):
             if buttons[i][j].draw():
                 rotateTrack(tracks, i, j)
-
-
-def updateCar():
-    pixPosList = list(car['pixPos'])
-    if car['dir'] == 'L':
-        pixPosList[0] -= CAR_SPEED
-    elif car['dir'] == 'U':
-        pixPosList[1] -= CAR_SPEED
-    elif car['dir'] == 'D':
-        pixPosList[1] += CAR_SPEED
-    elif car['dir'] == 'R':
-        pixPosList[0] += CAR_SPEED
-    car['pixPos'] = tuple(pixPosList)
     
-
-def carCollision():
-    if car['pixPos'][0] < 0 or car['pixPos'][0] > (SIZE - 1) * TRACK_SIZE + 30:
-        return True
-    if car['pixPos'][1] < 0 or car['pixPos'][1] > SIZE * TRACK_SIZE:
-        return True
-    if car['dir'] == 'L':
-        if car['trackPos'][1] == 0:
-            return False
-        if car['pixPos'][0] < car['trackPos'][1] * TRACK_SIZE + 20:
-            if not getDigit(tracks[car['trackPos'][0], car['trackPos'][1] - 1], 3):
+def checkSolution(): #constantly being checked if the player has found the solution
+    i, j = (4, 0)
+    dir = 'U'
+    while(True):
+        if(i == 0 and j == SIZE):
+            return True
+        if dir == 'U':
+            if i == 0:
                 return False
-            elif getDigit(tracks[car['trackPos'][0], car['trackPos'][1] - 1], 1):
-                car['dir'] = 'U'
-                pixPosList = list(car['pixPos'])
-                pixPosList[0] = (car['trackPos'][1] - 1) * TRACK_SIZE
-                car['pixPos'] = tuple(pixPosList)
-                trackPosList = list(car['trackPos'])
-                trackPosList[1] = car['trackPos'][1] - 1
-                car['trackPos'] = tuple(trackPosList)
-            elif getDigit(tracks[car['trackPos'][0], car['trackPos'][1] - 1], 2):
-                car['dir'] = 'D'
-                pixPosList = list(car['pixPos'])
-                pixPosList[0] = (car['trackPos'][1] - 1) * TRACK_SIZE
-                car['pixPos'] = tuple(pixPosList)
-                trackPosList = list(car['trackPos'])
-                trackPosList[1] = car['trackPos'][1] + 1
-                car['trackPos'] = tuple(trackPosList)
-    elif car['dir'] == 'U':
-        if car['trackPos'][0] == 0:
-            return False
-        if car['pixPos'][1] < car['trackPos'][0] * TRACK_SIZE + 20:
-            if not getDigit(tracks[car['trackPos'][0] - 1, car['trackPos'][1]], 2):
+            if not getDigit(tracks[i - 1][j], 2):
                 return False
-            elif getDigit(tracks[car['trackPos'][0] - 1, car['trackPos'][1]], 0):
-                car['dir'] = 'L'
-                pixPosList = list(car['pixPos'])
-                pixPosList[1] = (car['trackPos'][0] - 1) * TRACK_SIZE
-                car['pixPos'] = tuple(pixPosList)
-            elif getDigit(tracks[car['trackPos'][0] - 1, car['trackPos'][1]], 3):
-                car['dir'] = 'R'
-                pixPosList = list(car['pixPos'])
-                pixPosList[1] = (car['trackPos'][0] - 1) * TRACK_SIZE
-                car['pixPos'] = tuple(pixPosList)
-    elif car['dir'] == 'D':
-        if car['trackPos'][0] == 0:
-            return False
-        if car['pixPos'][1] < car['trackPos'][0] * TRACK_SIZE + 20:
-            if not getDigit(tracks[car['trackPos'][0] - 1, car['trackPos'][1]], 2):
+            i -= 1
+            if getDigit(tracks[i][j], 0):
+                dir = 'L'
+            elif getDigit(tracks[i][j], 3):
+                dir = 'R'
+        if dir == 'L':
+            if j == 0:
                 return False
-            elif getDigit(tracks[car['trackPos'][0] - 1, car['trackPos'][1]], 0):
-                car['dir'] = 'L'
-                pixPosList = list(car['pixPos'])
-                pixPosList[1] = (car['trackPos'][0] - 1) * TRACK_SIZE
-                car['pixPos'] = tuple(pixPosList)
-            elif getDigit(tracks[car['trackPos'][0] - 1, car['trackPos'][1]], 3):
-                car['dir'] = 'R'
-                pixPosList = list(car['pixPos'])
-                pixPosList[1] = (car['trackPos'][0] - 1) * TRACK_SIZE
-                car['pixPos'] = tuple(pixPosList)
-    elif car['dir'] == 'R':
-        pass
-    return False
-
+            if not getDigit(tracks[i - 1][j], 3):
+                return False
+            j -= 1
+            if getDigit(tracks[i][j], 1):
+                dir = 'U'
+            elif getDigit(tracks[i][j], 2):
+                dir = 'D'
+        if dir == 'D':
+            if i == SIZE - 1:
+                return False
+            if not getDigit(tracks[i + 1][j], 1):
+                return False
+            i += 1
+            if getDigit(tracks[i][j], 0):
+                dir = 'L'
+            elif getDigit(tracks[i][j], 3):
+                dir = 'R'
+        if dir == 'R':
+            if i == 0 and j ==  SIZE - 1:
+                return True
+            if j == SIZE - 1:
+                return False
+            if not getDigit(tracks[i][j + 1], 0):
+                return False
+            j += 1
+            if getDigit(tracks[i][j], 1):
+                dir = 'U'
+            elif getDigit(tracks[i][j], 2):
+                dir = 'D'
+    
+    
 def drawGrid():
     for i in range(SIZE):
         for j in range(SIZE):
-            pygame.draw.rect(WINDOW, (47, 35, 158), (j * TRACK_SIZE, i * TRACK_SIZE, TRACK_SIZE, TRACK_SIZE), GRID_THICKNESS)
+            #pygame.draw.rect(WINDOW, (47, 35, 158), (j * TRACK_SIZE, i * TRACK_SIZE, TRACK_SIZE, TRACK_SIZE), GRID_THICKNESS)
             if tracks[i][j] == '1001':
                 WINDOW.blit(HORIZONTAL, (j * TRACK_SIZE, i * TRACK_SIZE))
             elif tracks[i][j] == '0110':
@@ -215,11 +207,8 @@ def drawGrid():
 def draw():
     WINDOW.fill(BACKGROUND)
     drawGrid()
-    if car['dir'] == 'U' or car['dire'] == 'D':
-        WINDOW.blit(VERTICAL_CAR, (car['pixPos'][0] , car['pixPos'][1]))
-    else:
-        WINDOW.blit(HORIZONTAL_CAR, (car['pixPos'][0] , car['pixPos'][1]))
-    updateCar()
+    WINDOW.blit(ENTRANCE, (0, 5 * TRACK_SIZE))
+    WINDOW.blit(EXIT, (5 * TRACK_SIZE, 0))
     pygame.display.update()
 
 def mainMenu(startButton):
@@ -230,10 +219,10 @@ def mainMenu(startButton):
     pygame.display.update()
     return False
 
-def gameOver(restartButton):
-    WINDOW.fill(GAMEOVER_BACKGROUND)
-    WINDOW.blit(GAMEOVER_MESSAGE, (65, 200))
-    if restartButton.draw():
+def drawWinScreen(resetButton):
+    WINDOW.fill(WIN_BACKGROUND)
+    WINDOW.blit(WIN, (200, 200))
+    if resetButton.draw():
         return True
     pygame.display.update()
     return False
@@ -255,9 +244,15 @@ def resetGame():
     tracks[3][1] = '0110'
     tracks[3][2] = '0101'
     tracks[3][3] = '1001'
-    car['trackPos'] = (3, 0)
-    car['pixPos'] = (0, 4 * TRACK_SIZE)
-    car['dir'] = 'U'
+    tracks[0][4] = '0011'
+    tracks[1][4] = '1100'
+    tracks[2][4] = '0110'
+    tracks[3][4] = '0101'
+    tracks[4][0] = '0011'
+    tracks[4][1] = '0011'
+    tracks[4][2] = '1010'
+    tracks[4][3] = '0101'
+    tracks[4][4] = '1001'
 
 
 def main():
@@ -265,13 +260,11 @@ def main():
     run = True
     gridButtons = makeGridButtons()
     startButton = Button(300, 450, START_IMG, 1)
-    restartButton = Button(300, 450, RESTART_IMG, 1)
+    resetButton = Button(300, 450, RESTART_IMG, 1)
 
-    wait = True
 
     mainMenuScreen = True
     startGame = False
-    gameOverScreen = False
 
 
     while run: #Game Loop
@@ -281,23 +274,22 @@ def main():
                 run = False
         #Handle game loops here
         if startGame:
-            #if wait:
-            #    pygame.time.delay(1000)
-            #    wait = False
             handleTrackClicks(gridButtons)
             draw() #the game is constantly drawing and updating the screen
-            if carCollision():
-                gameOverScreen = True
+            if checkSolution():
+                mixer.music.play()
+                pygame.time.delay(2000)
                 startGame = False
+                winScreen = True
         elif mainMenuScreen:
             if mainMenu(startButton):
                 startGame = True
                 mainMenuScreen = False
-        elif gameOverScreen:
-            if gameOver(restartButton):
-                resetGame()
+        elif winScreen:
+            if drawWinScreen(resetButton):
                 startGame = True
-                gameOverScreen = False
+                winScreen = False
+                resetGame()
     pygame.quit()
 
 if __name__ == "__main__": #only runs the game if this specific file is run
